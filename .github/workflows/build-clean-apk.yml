@@ -1,0 +1,89 @@
+name: Build Clean Gamification APK
+
+on:
+  push:
+    paths:
+      - "gamification-project.zip"
+      - ".github/workflows/build-clean-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify project ZIP exists
+        run: test -f gamification-project.zip
+
+      - name: Create clean build directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf _buildsrc
+          mkdir -p _buildsrc
+          unzip -q -o gamification-project.zip -d _buildsrc
+
+      - name: Verify clean Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f _buildsrc/settings.gradle.kts
+          test -f _buildsrc/build.gradle.kts
+          test -f _buildsrc/app/build.gradle.kts
+          test -f _buildsrc/app/src/main/AndroidManifest.xml
+          test -f _buildsrc/app/src/main/java/com/shahriar/gamification/MainActivity.kt
+
+          echo "Clean Android project found."
+
+      - name: Check for old broken source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -nE "BoxScope|\.forEach\s*\{" \
+            _buildsrc/app/src/main/java/com/shahriar/gamification/MainActivity.kt
+          then
+            echo "ERROR: Old broken source detected."
+            exit 1
+          fi
+
+          echo "Source check passed."
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 34
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build APK
+        working-directory: _buildsrc
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gamification-APK
+          path: _buildsrc/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
